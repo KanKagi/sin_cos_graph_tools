@@ -1,17 +1,25 @@
-let angle = 0;          // 現在の角度
-let targetAngle = 0;    // 目標とする角度 (スナップ先)
-let isMoving = false;   // 操作中フラグ
+// ----------------------------------------------------
+// 定数と変数
+// ----------------------------------------------------
+let angle = 0;
+let targetAngle = 0;
+let isMoving = false;
 
-let radius;             // 単位円の半径
-let cx, cy;             // 中心座標
-let pixelsPerRadian;    // グラフのスケール
-let graphLength;        // グラフ描画長
+let radius;
+let cx, cy;            // 円の中心座標
+let pixelsPerRadian;
+let graphLength;
 
-const ROTATE_SPEED = 0.05; // 回転速度
-const SNAP_SPEED = 0.2;    // 吸着時の補間スピード
+// 操作パラメータ
+const ROTATE_SPEED = 0.05; 
+const SNAP_SPEED = 0.2;    
 
+// 特殊角リスト
 let specialAngles = [];
 
+// ----------------------------------------------------
+// 初期設定
+// ----------------------------------------------------
 function setup() {
   createCanvas(windowWidth, windowHeight);
   frameRate(60);
@@ -21,51 +29,72 @@ function setup() {
     7*PI/6, 5*PI/4, 4*PI/3, 3*PI/2, 5*PI/3, 7*PI/4, 11*PI/6, TWO_PI
   ];
 
+  // 起動時の画面サイズに合わせてレイアウト計算
   calculateLayout();
-  
-  // 初期ターゲット
   targetAngle = 0;
 }
 
+// 画面サイズが変わったとき（回転したとき）に再計算
 function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
   calculateLayout();
 }
 
+// --- レイアウト自動調整ロジック ---
 function calculateLayout() {
-  radius = min(width, height) * 0.22; 
-  cx = width * 0.4;
-  cy = height * 0.45;
-  graphLength = max(width, height);
+  // 縦長(Portrait)か横長(Landscape)か判定
+  let isPortrait = height > width;
+
+  if (isPortrait) {
+    // 【縦向き】の場合
+    // 円を「左上」に寄せることで、右と下のスペースを確保
+    radius = width * 0.22; // 幅基準で少し大きめに
+    cx = width * 0.35;     // 左寄せ
+    cy = height * 0.30;    // 上寄せ
+  } else {
+    // 【横向き】の場合
+    // 従来どおり、少し左・上下中央
+    radius = min(width, height) * 0.20; 
+    cx = width * 0.35; 
+    cy = height * 0.5;
+  }
+  
+  graphLength = max(width, height); // 十分な長さを確保
   pixelsPerRadian = (radius * 2.5) / TWO_PI; 
 }
 
+// ----------------------------------------------------
+// メインループ
+// ----------------------------------------------------
 function draw() {
   background(10, 10, 30);
   
+  // --- 1. 操作と動きの制御 ---
   updateControl();
-
-  let freqMultiplier = map(mouseX, 0, width, 2.0, 0.5);
-  let currentScale = pixelsPerRadian * freqMultiplier;
 
   push();
   translate(cx, cy);
+
+  // --- 2. グラフと単位円の描画 ---
+  let currentScale = pixelsPerRadian; 
 
   drawMovingSinGraph(currentScale);
   drawMovingCosGraph(currentScale);
   drawAxesAndCircle();
 
+  // --- 3. 現在の点と連動線 ---
   let circleX = radius * cos(angle);
   let circleY = radius * sin(-angle); 
 
+  // 半径線
   stroke(255, 255, 0); strokeWeight(2);
   line(0, 0, circleX, circleY);
 
+  // ロック判定
   let locked = (!isMoving && abs(angle - targetAngle) < 0.001);
   if (locked) {
     fill(255, 255, 0); noStroke();
     ellipse(circleX, circleY, 20, 20);
-
     stroke(255, 255, 0, 100); strokeWeight(2); noFill();
     ellipse(circleX, circleY, 30, 30);
   } else {
@@ -73,6 +102,7 @@ function draw() {
     ellipse(circleX, circleY, 16, 16);
   }
   
+  // 連動線
   stroke(0, 255, 0, 150); strokeWeight(2);
   line(circleX, circleY, graphLength, circleY);
   fill(0, 255, 0); ellipse(circleX, circleY, 10, 10);
@@ -83,37 +113,53 @@ function draw() {
   
   pop();
 
+  // --- 4. UI表示 ---
   drawUI(locked);
+  
+  // --- 5. タッチガイド ---
+  drawTouchGuides();
 }
 
+// ----------------------------------------------------
+// コントロールロジック
+// ----------------------------------------------------
 function updateControl() {
-  let keyInput = false;
-  
-  if (keyIsDown(RIGHT_ARROW)) {
-    angle += ROTATE_SPEED;
-    keyInput = true;
-  } else if (keyIsDown(LEFT_ARROW)) {
-    angle -= ROTATE_SPEED;
-    keyInput = true;
+  let inputRight = false;
+  let inputLeft = false;
+
+  if (keyIsDown(RIGHT_ARROW)) inputRight = true;
+  if (keyIsDown(LEFT_ARROW)) inputLeft = true;
+
+  if (mouseIsPressed) {
+    // 画面の半分より右なら右回転、左なら左回転
+    if (mouseX > width / 2) {
+      inputRight = true;
+    } else {
+      inputLeft = true;
+    }
   }
   
-  if (keyInput) {
+  if (inputRight) {
+    angle += ROTATE_SPEED;
     isMoving = true;
-    // 桁あふれ防止
-    if (angle > TWO_PI * 100) angle -= TWO_PI * 100;
-    if (angle < -TWO_PI * 100) angle += TWO_PI * 100;
-    
+  } else if (inputLeft) {
+    angle -= ROTATE_SPEED;
+    isMoving = true;
   } else {
     if (isMoving) {
       targetAngle = findClosestSpecialAngle(angle);
       isMoving = false;
     }
-    
     if (abs(angle - targetAngle) > 0.0001) {
       angle = lerp(angle, targetAngle, SNAP_SPEED);
     } else {
       angle = targetAngle; 
     }
+  }
+
+  if (isMoving) {
+    if (angle > TWO_PI * 100) angle -= TWO_PI * 100;
+    if (angle < -TWO_PI * 100) angle += TWO_PI * 100;
   }
 }
 
@@ -150,10 +196,15 @@ function findClosestSpecialAngle(current) {
   return candidate3;
 }
 
+// ----------------------------------------------------
+// 描画関数群
+// ----------------------------------------------------
 function drawAxesAndCircle() {
   stroke(60, 60, 90); strokeWeight(1);
-  line(-width, 0, width, 0);
-  line(0, -height, 0, height);
+  // 画面全体をカバーするように長く線を引く
+  let maxDim = max(width, height);
+  line(-maxDim, 0, maxDim, 0);
+  line(0, -maxDim, 0, maxDim);
 
   noFill(); stroke(0, 255, 255); strokeWeight(2);
   ellipse(0, 0, radius * 2, radius * 2);
@@ -169,7 +220,9 @@ function drawAxesAndCircle() {
 function drawMovingSinGraph(scale) {
   noFill(); stroke(0, 255, 0); strokeWeight(2);
   beginShape();
-  for (let t = angle; t < angle + (width / scale) + 1; t += 0.05) {
+  // 描画範囲を画面サイズに合わせて動的に調整
+  let drawLimit = width / scale + 1; 
+  for (let t = angle; t < angle + drawLimit; t += 0.05) {
     let x = (t - angle) * scale;
     if (x >= 0) {
       let y = radius * sin(-t);
@@ -182,7 +235,8 @@ function drawMovingSinGraph(scale) {
 function drawMovingCosGraph(scale) {
   noFill(); stroke(255, 0, 255); strokeWeight(2);
   beginShape();
-  for (let t = angle; t < angle + (height / scale) + 1; t += 0.05) {
+  let drawLimit = height / scale + 1;
+  for (let t = angle; t < angle + drawLimit; t += 0.05) {
     let y = (t - angle) * scale;
     if (y >= 0) {
       let x = radius * cos(t);
@@ -192,10 +246,10 @@ function drawMovingCosGraph(scale) {
   endShape();
 }
 
+// ----------------------------------------------------
+// UI・ガイド表示
+// ----------------------------------------------------
 function drawUI(locked) {
-  fill(255); textAlign(LEFT, TOP); textSize(16); noStroke();
-  text("Hold Arrow Keys to Rotate.", 20, 20);
-  
   let dispAngle = targetAngle;
   if (!locked) dispAngle = angle; 
   
@@ -210,45 +264,73 @@ function drawUI(locked) {
   } else {
     fill(0, 0, 0, 150); noStroke();
   }
-  rect(10, height - 160, 360, 150, 10);
+  
+  // UIパネルの位置調整
+  // 縦持ちのときは少し下に余裕を持たせる
+  let panelW = min(300, width * 0.8);
+  let panelH = 130;
+  let panelX = (width > height) ? 10 : (width - panelW) / 2; // 縦持ちなら中央揃え
+  
+  rect(panelX, height - panelH - 20, panelW, panelH, 10);
 
-  fill(255, 255, 0); textSize(28); noStroke();
-  text("θ = " + nf(degrees(dispAngle), 0, 0) + "°", 30, height - 140);
+  noStroke();
+  fill(255, 255, 0); textSize(24);
+  text("θ = " + nf(degrees(dispAngle), 0, 0) + "°", panelX + 15, height - panelH + 10);
   
   if (locked) {
-    fill(255, 200, 0); textSize(14);
-    text("LOCKED", 200, height - 140);
+    fill(255, 200, 0); textSize(12);
+    text("LOCKED", panelX + 140, height - panelH + 10);
   }
 
   let valSin = getExactTrigValue(dispAngle, true);
   let valCos = getExactTrigValue(dispAngle, false);
 
-  let startY = height - 100;
-  fill(0, 255, 0); textSize(24);
-  text("sinθ =", 30, startY);
-  drawBeautifulFraction(valSin, 110, startY);
+  let startY = height - panelH + 45;
+  fill(0, 255, 0); textSize(20);
+  text("sinθ =", panelX + 15, startY);
+  drawBeautifulFraction(valSin, panelX + 80, startY);
 
-  startY = height - 50;
-  fill(255, 0, 255); textSize(24);
-  text("cosθ =", 30, startY);
-  drawBeautifulFraction(valCos, 110, startY);
+  startY = height - panelH + 85;
+  fill(255, 0, 255); textSize(20);
+  text("cosθ =", panelX + 15, startY);
+  drawBeautifulFraction(valCos, panelX + 80, startY);
+}
+
+function drawTouchGuides() {
+  if (isMoving) return;
+
+  fill(255, 255, 255, 30); noStroke();
+  textSize(40); textAlign(CENTER, CENTER);
+  
+  // ガイドもレイアウトに合わせて少し調整
+  let guideY = height / 2;
+  if (height > width) guideY = height * 0.6; // 縦持ちなら少し下に表示
+
+  text("↺", width * 0.1, guideY);
+  textSize(12);
+  text("Touch", width * 0.1, guideY + 40);
+
+  textSize(40);
+  text("↻", width * 0.9, guideY);
+  textSize(12);
+  text("Touch", width * 0.9, guideY + 40);
 }
 
 function drawBeautifulFraction(v, x, y) {
   push();
-  textAlign(LEFT, CENTER); textSize(24); noStroke();
+  textAlign(LEFT, CENTER); textSize(20); noStroke();
   
   if (!v.isFraction) {
-    text(v.numerator, x, y + 10);
+    text(v.numerator, x, y + 8);
   } else {
-    let numY = y - 5;
-    let denY = y + 25;
-    let lineY = y + 12;
-    text(v.numerator, x + 5, numY);
-    text(v.denominator, x + 5, denY);
+    let numY = y - 6;
+    let denY = y + 22;
+    let lineY = y + 10;
+    text(v.numerator, x + 4, numY);
+    text(v.denominator, x + 4, denY);
     strokeWeight(2); stroke(255); 
     let lineW = max(textWidth(v.numerator), textWidth(v.denominator));
-    line(x, lineY, x + lineW + 10, lineY);
+    line(x, lineY, x + lineW + 8, lineY);
   }
   pop();
 }
